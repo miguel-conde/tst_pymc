@@ -3,3 +3,5 @@
 .RData
 .Ruserdata
 *.Rproj
+PYTHON/utils.egg-info/
+PYTHON/utils/__pycache__/
