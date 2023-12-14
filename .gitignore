@@ -5,3 +5,6 @@
 *.Rproj
 PYTHON/utils.egg-info/
 PYTHON/utils/__pycache__/
+*.nc
+PYTHON/utils/sts/__pycache__/
+PYTHON/utils/sts/models/__pycache__/

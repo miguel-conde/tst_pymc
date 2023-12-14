@@ -61,7 +61,7 @@ class StochasticTrend(ModelBuilder):
             diff_local_level = pm.Normal("diff_local_level", mu=local_trend, sigma=sigma_local_level, dims="n_obs")
             local_level      = pm.Deterministic("local_level", diff_local_level.cumsum() + local_level_0, dims="n_obs")
 
-            y_obs = pm.Normal("y", mu=local_level, sigma=sigma, dims="n_obs", observed=y)
+            y = pm.Normal("y", mu=local_level, sigma=sigma, dims="n_obs", observed=y_data)
 
     def _data_setter(
         self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.Series, np.ndarray] = None
