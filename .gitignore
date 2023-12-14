@@ -8,3 +8,4 @@ PYTHON/utils/__pycache__/
 *.nc
 PYTHON/utils/sts/__pycache__/
 PYTHON/utils/sts/models/__pycache__/
+PYTHON/build/
