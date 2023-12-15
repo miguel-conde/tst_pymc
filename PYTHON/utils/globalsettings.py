@@ -11,8 +11,12 @@ the_folders.DIR_ROOT  = os.path.join(os.path.abspath(os.path.dirname(__file__)),
 the_folders.DIR_DATA = os.path.join(the_folders.DIR_ROOT, "data")
 the_folders.DIR_DATA_RAW = os.path.join(the_folders.DIR_DATA, "raw")
 the_folders.DIR_DATA_CLEAN = os.path.join(the_folders.DIR_DATA, "clean")
+the_folders.DIR_DATA_TEST = os.path.join(the_folders.DIR_DATA, "test")
 
 the_files = prjSettings()
+
+the_files.NILE = os.path.join(the_folders.DIR_DATA_TEST, "nile.csv")
+the_files.AIR  = os.path.join(the_folders.DIR_DATA_TEST, "airpass.csv")
 
 the_files.CFG_FILE = os.path.join(the_folders.DIR_ROOT, "config.ini")
 
