@@ -155,3 +155,178 @@ def make_fourier_features(df, date_var_name, n_order=10, period=365.25):
     )
 
     return fourier_features
+
+
+##################################################################################################
+#
+# https://discourse.pymc.io/t/pymc-experimental-now-includes-state-spaces-models/12773
+# https://github.com/pymc-devs/pymc-experimental/blob/main/notebooks/Structural%20Timeseries%20Modeling.ipynb
+#
+##################################################################################################
+
+from pymc_experimental.statespace import structural as st
+from pymc_experimental.statespace.utils.constants import SHORT_NAME_TO_LONG, MATRIX_NAMES
+import matplotlib.pyplot as plt
+import pymc as pm
+import arviz as az
+import pytensor
+import pytensor.tensor as pt
+import numpy as np
+import pandas as pd
+from patsy import dmatrix
+
+def unpack_statespace(ssm):
+    """
+    Unpacks the symbolic matrices from the statespace model.
+
+    Args:
+        ssm (dict): Dictionary containing the symbolic matrices.
+
+    Returns:
+        list: List of unpacked symbolic matrices.
+    """
+    return [ssm[SHORT_NAME_TO_LONG[x]] for x in MATRIX_NAMES]
+
+
+def unpack_symbolic_matrices_with_params(mod, param_dict):
+    """
+    Unpacks the symbolic matrices from the statespace model with parameter values.
+
+    Args:
+        mod (type): The statespace model.
+        param_dict (dict): Dictionary containing the parameter values.
+
+    Returns:
+        tuple: Tuple containing the unpacked symbolic matrices.
+    """
+    f_matrices = pytensor.function(
+        list(mod._name_to_variable.values()), unpack_statespace(mod.ssm), on_unused_input="ignore"
+    )
+    x0, P0, c, d, T, Z, R, H, Q = f_matrices(**param_dict)
+    return x0, P0, c, d, T, Z, R, H, Q
+
+
+def simulate_from_numpy_model(mod, rng, param_dict, steps=100):
+    """
+    Helper function to simulate the components of a structural timeseries model outside of a PyMC model context.
+
+    Args:
+        mod (type): The structural timeseries model.
+        rng (numpy.random.Generator): Random number generator.
+        param_dict (dict): Dictionary containing the parameter values.
+        steps (int, optional): Number of steps to simulate. Defaults to 100.
+
+    Returns:
+        tuple: Tuple containing the simulated components.
+    """
+    x0, P0, c, d, T, Z, R, H, Q = unpack_symbolic_matrices_with_params(mod, param_dict)
+    Z_time_varies = Z.ndim == 3
+
+    k_states = mod.k_states
+    k_posdef = mod.k_posdef
+
+    x = np.zeros((steps, k_states))
+    y = np.zeros(steps)
+
+    x[0] = x0
+    if Z_time_varies:
+        y[0] = Z[0] @ x0
+    else:
+        y[0] = Z @ x0
+
+    if not np.allclose(H, 0):
+        y[0] += rng.multivariate_normal(mean=np.zeros(1), cov=H)
+
+    for t in range(1, steps):
+        if k_posdef > 0:
+            shock = rng.multivariate_normal(mean=np.zeros(k_posdef), cov=Q)
+            innov = R @ shock
+        else:
+            innov = 0
+
+        if not np.allclose(H, 0):
+            error = rng.multivariate_normal(mean=np.zeros(1), cov=H)
+        else:
+            error = 0
+
+        x[t] = c + T @ x[t - 1] + innov
+
+        if Z_time_varies:
+            y[t] = d + Z[t] @ x[t] + error
+        else:
+            y[t] = d + Z @ x[t] + error
+
+    return x, y
+
+
+def simulate_many_trajectories(mod, rng, param_dict, n_simulations, steps=100):
+    """
+    Simulates multiple trajectories of a structural timeseries model.
+
+    Args:
+        mod (type): The structural timeseries model.
+        rng (numpy.random.Generator): Random number generator.
+        param_dict (dict): Dictionary containing the parameter values.
+        n_simulations (int): Number of simulations to perform.
+        steps (int, optional): Number of steps to simulate. Defaults to 100.
+
+    Returns:
+        tuple: Tuple containing the simulated trajectories.
+    """
+    k_states = mod.k_states
+    k_posdef = mod.k_posdef
+
+    xs = np.zeros((n_simulations, steps, k_states))
+    ys = np.zeros((n_simulations, steps))
+
+    for i in range(n_simulations):
+        x, y = simulate_from_numpy_model(mod, rng, param_dict, steps)
+        xs[i] = x
+        ys[i] = y
+    return xs, ys
+
+
+def simulate_regression_component(rng, k_exog = 3, n_obs = 100):
+    """
+    Simulate a regression component using the provided parameters.
+
+    Args:
+        rng (numpy.random.Generator): Random number generator.
+        param_dict (dict): Dictionary of parameters for the regression component.
+
+    Returns:
+        numpy.ndarray: Simulated regression coefficients.
+        numpy.ndarray: Simulated observed state.
+    """
+    exog_data = rng.normal(size=(n_obs, k_exog))
+    true_betas = rng.normal(size=(k_exog,))
+    param_dict = {"beta_exog": true_betas, "data_exog": exog_data}
+
+    reg = st.RegressionComponent(name="exog", k_exog=k_exog, innovations=False)
+    x, y = simulate_from_numpy_model(reg, rng, param_dict)
+
+    return x, y
+
+
+def plot_exog_regression(x, y, data):
+    """
+    Plot the observed state, hidden states (data), and regression coefficients.
+
+    Args:
+        x (array-like): The regression coefficients.
+        y (array-like): The observed state.
+        data (array-like): The hidden states (data).
+    """
+    fig = plt.figure(figsize=(14, 6))
+    gs = plt.GridSpec(nrows=2, ncols=2, figure=fig)
+
+    y_axis = fig.add_subplot(gs[0, :])
+    data_axis = fig.add_subplot(gs[1, 0])
+    param_axis = fig.add_subplot(gs[1, 1])
+    axes = [y_axis, data_axis, param_axis]
+    datas = [y, data, x]
+    titles = ["Observed State", "Hidden States (Data)", "Regression Coefficients"]
+    for axis, data, title in zip(axes, datas, titles):
+        axis.plot(data)
+        axis.set_title(title)
+    plt.show()
