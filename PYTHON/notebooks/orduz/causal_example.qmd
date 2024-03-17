@@ -1,0 +1,132 @@
+
+---
+title: "Causal MMM example"
+format:  
+  html:
+    self-contained: true
+editor: visual
+warning: false
+---
+
+::: panel-tabset
+## R
+```{r}
+library(tidyverse, quietly = TRUE)
+library(dagitty)
+```
+## Python
+```{python}
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+```
+:::
+
+```{r}
+dag <- dagitty(x = "dag {
+  TV -> Search -> Conversions
+  TV -> Conversions
+  Seasonality -> Conversions
+  Seasonality -> Search
+  Seasonality -> Facebook -> Search
+}")
+
+coordinates(x = dag) <- list(
+  x = c(
+    "Seasonality" = -1,
+    "TV"          = 0,
+    "Search"      = 1,
+    "Facebook"    = 0,
+    "Conversions" = 2
+  ),
+  y = c(
+    "Seasonality" = 1,
+    "TV"          = -1,
+    "Search"      = 0,
+    "Facebook"    = 0,
+    "Conversions" = 0
+  )
+)
+
+plot(dag)
+```
+
+```{r}
+# Generate a dataset
+intcpt <- 100
+slope <- 0.4
+season_amplitude <- 10
+
+set.seed(2024)
+N <- 1000
+
+df <- tibble(
+  date        = seq.Date(
+    from       = as.Date("2020-01-01"),
+    by         = "day",
+    length.out = N
+    ),
+  t           = intcpt + slope * (1:N) + rnorm(N, 0, .1),
+  # Fourier components with n_order = 2 and period = 365.25
+  seasonality = season_amplitude * (sin(2 * pi * (1:2) * t / 365.25) +
+                                      cos(2 * pi * t * (1:N) / 365.25) +
+                                      rnorm(N, 0, .1)),
+  tv          = 10 * rbinom(N, 5, 0.05),
+  fb          = 200 + 5 * seasonality + rnorm(N, 0, .1),
+  search      = 100 + 3 * tv + 2 * fb + 1.5 * seasonality + rnorm(N, 0, .1),
+  conversions = 50 + 0.1 * search + 0.2 * tv + 0.3 * seasonality +
+                    rnorm(N, 0, .1)
+)
+```
+
+```{r}
+cor(df %>% select(-date))
+```
+    
+```{r}
+df %>% ggplot(aes(x = date, y = conversions)) + geom_line()
+df %>% ggplot(aes(x = date, y = tv)) + geom_line()
+df %>% ggplot(aes(x = date, y = fb)) + geom_line()
+df %>% ggplot(aes(x = date, y = search)) + geom_line()
+```
+
+```{r}
+lm_all <- lm(conversions ~ tv + seasonality + search + fb, data = df)
+summary(lm_all)
+```
+
+```{r}
+adjustmentSets(
+    x        = dag,
+    exposure = "TV",
+    outcome  = "Conversions",
+    type     = "canonical",
+    effect   = "total"
+    )
+adjustmentSets(
+    x        = dag,
+    exposure = "Facebook",
+    outcome  = "Conversions",
+    type     = "canonical",
+    effect   = "total"
+    )
+```
+
+```{r}	
+lm_fb_tv <- lm(conversions ~ tv + seasonality + fb, data = df)
+summary(lm_fb_tv)
+```
+
+```{r}  
+adjustmentSets(
+    x        = dag,
+    exposure = "Search",
+    outcome  = "Conversions",
+    type     = "canonical",
+    effect   = "total")
+```
+
+```{r}
+lm_search <- lm(conversions ~ tv + seasonality + search + fb, data = df)
+summary(lm_all)
+```
